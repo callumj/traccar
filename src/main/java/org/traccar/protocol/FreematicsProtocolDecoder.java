@@ -16,10 +16,10 @@
 package org.traccar.protocol;
 
 import io.netty.channel.Channel;
-import org.traccar.BaseProtocolDecoder;
-import org.traccar.DeviceSession;
-import org.traccar.NetworkMessage;
-import org.traccar.Protocol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.traccar.*;
+import org.traccar.database.IdentityManager;
 import org.traccar.helper.Checksum;
 import org.traccar.helper.DateBuilder;
 import org.traccar.helper.UnitsConverter;
@@ -31,6 +31,9 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class FreematicsProtocolDecoder extends BaseProtocolDecoder {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FreematicsProtocolDecoder.class);
+    private final IdentityManager identityManager = Context.getIdentityManager();
 
     public FreematicsProtocolDecoder(Protocol protocol) {
         super(protocol);
@@ -86,10 +89,15 @@ public class FreematicsProtocolDecoder extends BaseProtocolDecoder {
         Position position = null;
         DateBuilder dateBuilder = null;
 
+        Position last = identityManager.getLastPosition(deviceSession.getDeviceId());
+
         for (String pair : sentence.split(",")) {
             String[] data = pair.split("[=:]");
             int key = Integer.parseInt(data[0], 16);
             String value = data[1];
+            String hexString = Integer.toHexString(key);
+
+            LOGGER.info("key={} int={} hex={} value={}", data[0], key, hexString, value);
             switch (key) {
                 case 0x0:
                     if (position != null) {
@@ -117,19 +125,36 @@ public class FreematicsProtocolDecoder extends BaseProtocolDecoder {
                             Integer.parseInt(value.substring(6)) * 10);
                     break;
                 case 0xA:
-                    position.setLatitude(Double.parseDouble(value));
+                    double lat = Double.parseDouble(value);
+                    if (lat == 0 && last != null && last.getLatitude() != 0)
+                        lat = last.getLatitude();
+                    position.setLatitude(lat);
                     break;
                 case 0xB:
-                    position.setLongitude(Double.parseDouble(value));
+                    double lng = Double.parseDouble(value);
+                    if (lng == 0 && last != null && last.getLongitude() != 0)
+                        lng = last.getLongitude();
+                    position.setLongitude(lng);
                     break;
                 case 0xC:
-                    position.setAltitude(Double.parseDouble(value));
+                    double alt = Double.parseDouble(value);
+                    if (alt == 0 && last != null && last.getAltitude() != 0)
+                        alt = last.getAltitude();
+                    position.setAltitude(alt);
                     break;
                 case 0xD:
-                    position.setSpeed(UnitsConverter.knotsFromKph(Double.parseDouble(value)));
+                    double speed = UnitsConverter.knotsFromKph(Double.parseDouble(value));
+                    if (speed < 2.0) {
+                        LOGGER.info("Zeroing out speed");
+                        speed = 0.0;
+                    }
+                    position.setSpeed(speed);
                     break;
                 case 0xE:
-                    position.setCourse(Integer.parseInt(value));
+                    double course = Integer.parseInt(value);
+                    if (course == 0 && last != null && last.getCourse() != 0)
+                        course = last.getCourse();
+                    position.setCourse(course);
                     break;
                 case 0xF:
                     position.set(Position.KEY_SATELLITES, Double.parseDouble(value));
@@ -164,8 +189,16 @@ public class FreematicsProtocolDecoder extends BaseProtocolDecoder {
                 case 0x111:
                     position.set(Position.KEY_THROTTLE, Double.parseDouble(value));
                     break;
+                case 0x12F:
+                    int fuelLevel = Integer.parseInt(value);
+                    LOGGER.info("Fuel: {} {}", fuelLevel * 1.0, value);
+                    if (fuelLevel != 0) {
+                        position.set(Position.KEY_FUEL_LEVEL, fuelLevel * 1.0);
+                    }
+                    break;
                 default:
-                    position.set(Position.PREFIX_IO + key, value);
+                    if (!value.equalsIgnoreCase("0"))
+                        position.set(Position.PREFIX_IO + key + "." + hexString, value);
                     break;
             }
         }
@@ -173,6 +206,8 @@ public class FreematicsProtocolDecoder extends BaseProtocolDecoder {
         if (position != null) {
             position.setTime(dateBuilder.getDate());
             positions.add(position);
+
+            LOGGER.info("position={}", position.getAttributes().entrySet());
         }
 
         return positions;

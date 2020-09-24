@@ -17,14 +17,19 @@
 package org.traccar.handler;
 
 import io.netty.channel.ChannelHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.BaseDataHandler;
 import org.traccar.database.IdentityManager;
 import org.traccar.model.Position;
+import org.traccar.protocol.FreematicsProtocolDecoder;
 
 @ChannelHandler.Sharable
 public class CopyAttributesHandler extends BaseDataHandler {
 
     private IdentityManager identityManager;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FreematicsProtocolDecoder.class);
 
     public CopyAttributesHandler(IdentityManager identityManager) {
         this.identityManager = identityManager;
@@ -41,8 +46,11 @@ public class CopyAttributesHandler extends BaseDataHandler {
         }
         Position last = identityManager.getLastPosition(position.getDeviceId());
         if (last != null) {
+            LOGGER.info("last.attributes={}", last.getAttributes().keySet());
             for (String attribute : attributesString.split("[ ,]")) {
+                LOGGER.info("Checking attribute={}", attribute);
                 if (last.getAttributes().containsKey(attribute) && !position.getAttributes().containsKey(attribute)) {
+                    LOGGER.info("Copying attribute={} over", attribute);
                     position.getAttributes().put(attribute, last.getAttributes().get(attribute));
                 }
             }

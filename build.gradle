@@ -89,6 +89,17 @@ task copyBinary(type: Copy) {
 }
 assemble.dependsOn(copyBinary, copyDependencies)
 
+task copyDocker(type: Copy) {
+    into "$projectDir/custom_docker"
+    from jar
+}
+task buildDocker(type: Exec) {
+    dependsOn('assemble', 'copyDocker')
+
+    workingDir "$projectDir/custom_docker"
+    commandLine "ruby", "build.rb"
+}
+
 jar {
     manifest {
         attributes(
